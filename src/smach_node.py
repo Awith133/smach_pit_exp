@@ -54,7 +54,6 @@ class nav2PIT(smach.State):
 	def global_wp_nav(self,userdata,nav2pit_pub):
 		#publish points from csv and get x,y
 		msg = PoseStamped()
-		print("UserData global wp counter {0}".format(userdata.counter_wp_2_pit))
 		msg.pose.position.x = userdata.wp_2_pit[userdata.counter_wp_2_pit][0]#x
 		msg.pose.position.y = userdata.wp_2_pit[userdata.counter_wp_2_pit][1]#y
 		msg.pose.orientation.w = 1
@@ -127,55 +126,71 @@ class nav2PIT(smach.State):
 # 		# use mission flag to find out if all the things
 
 
-# class reach_edge_cb(smach.State):
+class reach_edge_cb(smach.State):
 
-# 	def __init__(self):
-# 		smach.State.__init__(self,input_keys=[ ],
-# 					output_keys=[ ],
-# 					outcomes=['reached_edge','mission_ongoing','failed'])
-# 		self.success_flag = False
-# 		self.mission_flag = False
-# 		self.mission_failure = False
-
-
-# 	def position_cb(self,msg, argc):
-#  	 	wp = argc[0]
-#  	 	error = math.sqrt((msg.pose.pose.position.x - wp.pose.pose.position.x)**2 + (msg.pose.pose.position.y - wp.pose.pose.position.y)**2)
-# 		# rospy.loginfo("the error is this bro-------- %d", error)
-# 		if(error<GLOBAL_RADIUS):
-# 			self.success_flag = True
-# 			# if last flag is reached set mission flag to true
+	def __init__(self):
+		smach.State.__init__(self,input_keys=[ ],
+					output_keys=[ ],
+					outcomes=['reached_edge','mission_ongoing','failed'])
+		self.gen_first_flag = True
+		self.success_flag = False
+		self.mission_flag = False
+		self.mission_failure = False
 
 
-# 	def global_wp_nav(self,nav2pit_pub,wp_gen):
-# 		#service call to ayush's function to get way point
-# 		msg = Odometry()
-# 		rospy.loginfo("Publishing")
-# 		msg.pose.pose.position.x = wp_gen.x#x
-# 		msg.pose.pose.position.y = wp_gen.y#y
-# 		#msg.pose.pose.position.z = 3#z
-#  		nav2pit_pub.publish(msg)
-# 		return msg
+	def position_cb(self,msg, argc):
+ 	 	x_pose = msg.polygon.points[0].x
+		y_pose = msg.polygon.points[0].y
+		userdata = argc[0]
+		if self.gen_first_flag:
+			error = 0
+		else:
+			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
+		if(error<GLOBAL_RADIUS):
+			self.success_flag = True
+			rospy.wait_for_service('some name for the thing')
+			nav2pit_serv = rospy.ServiceProxy('some name for the thing', waypoints)
+	 	 	try:
+	  			self.wp_gen = nav2pit_serv()
+	  			self.mission_flag = self.wp_gen.mission_flag
+	  			self.mission_failure  = ( self.wp_gen.mission_flag or self.wp_gen.wp_received)
+			except rospy.ServiceException as exc:
+	  			print("Service did not process request: " + str(exc))
+	  		if (self.wp_gen.wp_received and not self.mission_flag):
+				self.wp = self.global_wp_nav(nav2pit_pub,self.wp_gen)
+			# if last flag is reached set mission flag to true
 
 
-# 	def execute(self,userdata):
-# 		rospy.loginfo('Generating Waypoints and Navigating to the pit')
+	def global_wp_nav(self,nav2pit_pub,wp_gen):
+		#service call to ayush's function to get way point
+		msg = PoseStamped()
 
-# 		self.success_flag = False
-# 		rospy.wait_for_service('some name for the thing')
-# 		nav2pit_serv = rospy.ServiceProxy('some name for the thing', waypoints)
-#  	 	try:
-#   			wp_gen = nav2pit_serv()
-# 		except rospy.ServiceException as exc:
-#   			print("Service did not process request: " + str(exc))
-#  	 	#rate = rospy.Rate(1)
-# 		#rate.sleep()
-# 		wp = self.global_wp_nav(nav2pit_pub,wp_gen)
-#  		if self.mission_flag:
-# 			return 'reached_edge'
-# 		if self.mission_failure:
-# 			return 'failed'
-# 		return 'mission_ongoing'
+		msg.pose.position.x = wp_gen.x#x
+		msg.pose.position.y = wp_gen.y#y
+		msg.pose.orientation.w = 1
+		msg.header.frame_id = 'map'
+		nav2pit_pub.publish(msg)
+		return msg
+
+
+	def execute(self,userdata):
+		# rospy.loginfo('Generating Waypoints and Navigating to the pit')
+
+		# self.success_flag = False
+		# if (not self.gen_first_flag ):
+		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.success_flag))
+		rate = rospy.Rate(5)
+		rate.sleep()
+		self.gen_first_flag = False
+
+		if (self.gen_first_flag ):
+
+ 		if self.mission_flag:
+ 			self.gen_first_flag = True
+			return 'reached_edge'
+		if self.mission_failure:
+			return 'failed'
+		return 'mission_ongoing'
 
 
 def read_csv(filename):
@@ -227,15 +242,15 @@ def main():
 
 	with sm:
 
-		smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
-								 transitions = {'reached_pit':'Mission_aborted','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
+		# smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
+		# 						 transitions = {'reached_pit':'Mission_aborted','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
 
 		# smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 		# 				 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
 		# 				 'MISSION_COMPLETE':'Mission_completed_succesfully'})
 
-		# smach.StateMachine.add('nav2EDGE', reach_edge_cb(),#BState(nav2pit_cb),
-		# 		 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'navAROUNDPIT'})
+		smach.StateMachine.add('nav2EDGE', reach_edge_cb(),#BState(nav2pit_cb),
+				 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'navAROUNDPIT'})
 
 
 	sis = smach_ros.IntrospectionServer('server_name', sm, '/SM_ROOT')
