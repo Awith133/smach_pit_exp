@@ -54,7 +54,7 @@ class nav2PIT(smach.State):
 	def global_wp_nav(self,userdata,nav2pit_pub):
 		#publish points from csv and get x,y
 		msg = PoseStamped()
-		# print("UserData global wp counter {0}".format(userdata.counter_wp_2_pit))
+		print("UserData global wp counter {0}".format(userdata.counter_wp_2_pit))
 		msg.pose.position.x = userdata.wp_2_pit[userdata.counter_wp_2_pit][0]#x
 		msg.pose.position.y = userdata.wp_2_pit[userdata.counter_wp_2_pit][1]#y
 		msg.pose.orientation.w = 1
