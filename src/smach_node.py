@@ -12,8 +12,10 @@ from smach import CBState
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty
 from geometry_msgs.msg import PoseStamped, PolygonStamped
+from waypoint_pit_planner.srv import waypoints
 
-GLOBAL_RADIUS = 6
+
+GLOBAL_RADIUS = 1
 nav2pit_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size = 1)
 
 
@@ -143,21 +145,25 @@ class reach_edge_cb(smach.State):
 		y_pose = msg.polygon.points[0].y
 		userdata = argc[0]
 		if self.gen_first_flag:
+			print("here bro")
 			error = 0
 		else:
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
 		if(error<GLOBAL_RADIUS):
 			self.success_flag = True
-			rospy.wait_for_service('some name for the thing')
-			nav2pit_serv = rospy.ServiceProxy('some name for the thing', waypoints)
+			rospy.wait_for_service('gen_wp2pit')
+			nav2pit_serv = rospy.ServiceProxy('gen_wp2pit', waypoints)
 	 	 	try:
 	  			self.wp_gen = nav2pit_serv()
 	  			self.mission_flag = self.wp_gen.mission_flag
 	  			self.mission_failure  = ( self.wp_gen.mission_flag or self.wp_gen.wp_received)
+	  			if (self.wp_gen.wp_received and not self.mission_flag):
+						self.wp = self.global_wp_nav(nav2pit_pub,self.wp_gen)
+						self.gen_first_flag = False
 			except rospy.ServiceException as exc:
 	  			print("Service did not process request: " + str(exc))
-	  		if (self.wp_gen.wp_received and not self.mission_flag):
-				self.wp = self.global_wp_nav(nav2pit_pub,self.wp_gen)
+
+
 			# if last flag is reached set mission flag to true
 
 
@@ -167,6 +173,7 @@ class reach_edge_cb(smach.State):
 
 		msg.pose.position.x = wp_gen.x#x
 		msg.pose.position.y = wp_gen.y#y
+		print("Gen Points:", wp_gen.x, wp_gen.y)
 		msg.pose.orientation.w = 1
 		msg.header.frame_id = 'map'
 		nav2pit_pub.publish(msg)
@@ -181,9 +188,9 @@ class reach_edge_cb(smach.State):
 		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.success_flag))
 		rate = rospy.Rate(5)
 		rate.sleep()
-		self.gen_first_flag = False
 
-		if (self.gen_first_flag ):
+
+		# if (self.gen_first_flag ):
 
  		if self.mission_flag:
  			self.gen_first_flag = True
@@ -235,7 +242,7 @@ def main():
 
 	sm.userdata.counter_wp_2_pit = -1
 	sm.userdata.counter_wp_around_pit = 0
-	sm.userdata.wp_2_pit = read_csv('waypoints.csv')
+	sm.userdata.wp_2_pit = read_csv('/home/himil07/catkin_ws/src/smach_pit_exp/src/waypoints.csv')
 	sm.userdata.current_wp = sm.userdata.wp_2_pit[0]
 	# sm.userdata.wp_around_pit = read_csv('')
 	sm.userdata.illumination_start_time = 0
@@ -249,8 +256,11 @@ def main():
 		# 				 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
 		# 				 'MISSION_COMPLETE':'Mission_completed_succesfully'})
 
-		smach.StateMachine.add('nav2EDGE', reach_edge_cb(),#BState(nav2pit_cb),
-				 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'navAROUNDPIT'})
+		smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
+				 transitions = {'reached_edge':'Mission_aborted', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
+
+		# smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
+		# 		 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'navAROUNDPIT'})
 
 
 	sis = smach_ros.IntrospectionServer('server_name', sm, '/SM_ROOT')
