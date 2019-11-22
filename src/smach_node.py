@@ -20,6 +20,7 @@ nav2pit_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size 
 
 
 #check the requirement of using self with userdata, it is a smach thing so it is possible that you do not need to do that
+#CLASS 3
 class nav2PIT(smach.State):
 
 	def __init__(self):
@@ -75,59 +76,66 @@ class nav2PIT(smach.State):
 			return 'reached_pit'
 		return 'mission_ongoing'
 
+#CLASS 2
+class circum_wp_cb(smach.State):
 
-# class circum_wp_cb(smach.State):
+	def __init__(self):
+		smach.State.__init__(self,input_keys=['counter_wp_around_pit','wp_around_pit','illumination_start_time'],
+					output_keys=['counter_wp_around_pit','illumination_start_time'],
+					outcomes=['reached_vantage_zone','mission_ongoing','failed','MISSION_COMPLETE'])
+		self.success_flag = False
+		self.mission_flag = False
 
-# 	def __init__(self):
-# 		smach.State.__init__(self,input_keys=['counter_wp_around_pit','wp_around_pit','illumination_start_time'],
-# 					output_keys=['counter_wp_around_pit','illumination_start_time'],
-# 					outcomes=['reached_vantage_zone','mission_ongoing','failed','MISSION_COMPLETE'])
-# 		self.success_flag = False
-# 		self.mission_flag = False
+	def position_cb(self, msg, argc):
 
-# 	def position_cb(self, msg, argc):
-#  	 	wp = argc[0]
-#  	 	error = math.sqrt((msg.pose.pose.position.x - wp.pose.pose.position.x)**2 + (msg.pose.pose.position.y - wp.pose.pose.position.y)**2)
-# 		# rospy.loginfo("the error is this bro-------- %d", error)
-# 		if(error<GLOBAL_RADIUS):
-# 			self.success_flag = True
-# 			#userdata.wp_around_pit += 1
-# 			if(userdata.counter_wp_around_pit == len(userdata.wp_around_pit)):
-# 				self.mission_flag = True
-# 			# if last flag is reached set mission flag to true
+		x_pose = msg.polygon.points[0].x
+		y_pose = msg.polygon.points[0].y
+		userdata = argc[0]
+		if(userdata.counter_wp_2_pit != -1):
+			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
+		else:
+			error = 0
 
-
-# 	def global_wp_nav(self,nav2pit_pub, userdata):
-# 		#get waypoint
-# 		msg = Odometry()
-# 		rospy.loginfo("Publishing")
-# 		current_time = rospy.get_rostime()
-# 		while(current_time - userdata.illumination_start_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
-# 			userdata.counter_wp_around_pit+=1
-
-# 		msg.pose.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]#x
-# 		msg.pose.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]#y
-#  		nav2pit_pub.publish(msg)
-# 		return msg
+		if(error<GLOBAL_RADIUS or userdata.counter_wp_2_pit == -1):
+			if (userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == 1 ):
+				if not (current_time - userdata.illumination_start_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
+					self.success_flag = True
+					return
+			userdata.counter_wp_2_pit += 1
+			if(userdata.counter_wp_2_pit == len(userdata.wp_2_pit)):
+				self.mission_flag = True
+				return
+			self.wp = self.global_wp_nav(userdata,nav2pit_pub)
 
 
-# 	def execute(self,userdata):
-# 		rospy.loginfo('Generating Waypoints and Navigating to the pit')
-# 		wp = self.global_wp_nav(userdata,nav2pit_pub)
-# 		self.success_flag = False
-#  	 	nav2pit_sub = rospy.Subscriber("/odometry_ground_truth", Odometry, self.position_cb, (wp,self.success_flag))
-#  	 	rate = rospy.Rate(1)
-# 		rate.sleep()
-# 		if self.mission_flag:
-# 			return 'MISSION_COMPLETE'
-# 		elif self.success_flag:
-# 			return 'reached_vantage_zone'
+	def global_wp_nav(self,nav2pit_pub, userdata):
+		#get waypoint
+		msg = Odometry()
+		rospy.loginfo("Publishing")
+		current_time = rospy.get_rostime()
+		while(current_time - userdata.illumination_start_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
+			userdata.counter_wp_around_pit+=1
 
-# 		return 'mission_ongoing'
-
-# 		# use mission flag to find out if all the things
+		msg.pose.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]#x
+		msg.pose.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]#y
+		nav2pit_pub.publish(msg)
+		return msg
 
 
+	def execute(self,userdata):
+		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata))
+		rate = rospy.Rate(5)
+		rate.sleep()
+		if self.mission_flag:
+			return 'MISSION_COMPLETE'
+		elif self.success_flag:
+			self.success_flag = False
+			return 'reached_vantage_zone'
+		return 'mission_ongoing'
+
+		# use mission flag to find out if all the things
+
+#CLASS 3
 class reach_edge_cb(smach.State):
 
 	def __init__(self):
@@ -156,7 +164,8 @@ class reach_edge_cb(smach.State):
 	 	 	try:
 	  			self.wp_gen = nav2pit_serv()
 	  			self.mission_flag = self.wp_gen.mission_flag
-	  			self.mission_failure  = ( self.wp_gen.mission_flag or self.wp_gen.wp_received)
+	  			self.mission_failure  = not self.wp_gen.wp_received
+	  			print('self.wp_gen.mission_flag', self.wp_gen.mission_flag)#( self.wp_gen.mission_flag or self.wp_gen.wp_received)
 	  			if (self.wp_gen.wp_received and not self.mission_flag):
 						self.wp = self.global_wp_nav(nav2pit_pub,self.wp_gen)
 						self.gen_first_flag = False
@@ -188,7 +197,6 @@ class reach_edge_cb(smach.State):
 		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.success_flag))
 		rate = rospy.Rate(5)
 		rate.sleep()
-
 
 		# if (self.gen_first_flag ):
 
@@ -242,7 +250,7 @@ def main():
 
 	sm.userdata.counter_wp_2_pit = -1
 	sm.userdata.counter_wp_around_pit = 0
-	sm.userdata.wp_2_pit = read_csv('/home/himil07/catkin_ws/src/smach_pit_exp/src/waypoints.csv')
+	sm.userdata.wp_2_pit = read_csv('/home/ayush/mrsd_ws/src/smach_pit_exp/src/waypoints.csv')
 	sm.userdata.current_wp = sm.userdata.wp_2_pit[0]
 	# sm.userdata.wp_around_pit = read_csv('')
 	sm.userdata.illumination_start_time = 0
