@@ -167,7 +167,7 @@ class reach_edge_cb(smach.State):
 	  				msg_odom = Odometry()
 					msg_odom.header.frame_id = 'map'
 					msg_odom.pose.pose.position.x = x_pose
-					msg_odom.pose.pose.position.y = y_pose
+					msg_odom.pose.pose.position.y = -1*y_pose
 					pit_edge_dist_pub.publish(msg_odom)
 
 				self.mission_failure  = not self.wp_gen.wp_received
@@ -213,8 +213,13 @@ def read_csv(filename):
 		for row in reader:
 			print(row)
 			tmp = []
+			i = 0
 			for elem in row:
-				tmp.append(int(elem) * resolution + offset)
+				if(i == 0):
+					tmp.append(int(elem) * resolution + offset)
+				else:
+					tmp.append(-1*int(elem) * resolution + offset)
+				i+=1
 			wp.append(tmp)
 	return wp
 
@@ -233,8 +238,10 @@ def read_csv_with_time(filename):
 			for elem in row:
 				if (i == 0):
 					tmp.append(int(elem) * time_resolution + time_offset)
-				elif (i<3):
+				elif (i==1):
 					tmp.append(int(elem) * map_resolution + map_offset)
+				elif (i == 2):
+					tmp.append(-1*int(elem) * map_resolution + map_offset)
 				else:
 					tmp.append(int(elem))
 				i+=1
