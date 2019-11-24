@@ -16,6 +16,10 @@ from waypoint_pit_planner.srv import waypoints
 
 GLOBAL_RADIUS = 1
 GLOBAL_RADIUS2 = 0.5
+file_to_pit = rospy.get_param("file_to_pit")
+FILE_TO_PIT = file_to_pit
+file_around_pit = rospy.get_param("file_around_pit")
+FILE_AROUND_PIT = file_around_pit
 
 nav2pit_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size = 1)
 pit_edge_dist_pub = rospy.Publisher('/robot_at_edge_position', Odometry, queue_size = 1)
@@ -43,7 +47,7 @@ class nav2PIT(smach.State):
 		if(userdata.counter_wp_2_pit != -1):
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
 		else:
-			error = 0;
+			error = 0
 		if(error<GLOBAL_RADIUS or userdata.counter_wp_2_pit == -1):
 			userdata.counter_wp_2_pit += 1
 			if(userdata.counter_wp_2_pit == len(userdata.wp_2_pit)):
@@ -69,7 +73,7 @@ class nav2PIT(smach.State):
 		rate = rospy.Rate(5)
 		rate.sleep()
 		if self.mission_flag:
-			userdata.illumination_start_time = rospy.get_rostime()
+			sm.userdata.illumination_start_time = rospy.get_rostime().secs
 			return 'reached_pit'
 		return 'mission_ongoing'
 
@@ -146,7 +150,7 @@ class reach_edge_cb(smach.State):
 
 
 	def position_cb(self,msg, argc):
- 	 	x_pose = msg.polygon.points[0].x
+		x_pose = msg.polygon.points[0].x
 		y_pose = msg.polygon.points[0].y
 		userdata = argc[0]
 		if self.gen_first_flag:
@@ -166,7 +170,7 @@ class reach_edge_cb(smach.State):
 					msg_odom.pose.pose.position.y = y_pose
 					pit_edge_dist_pub.publish(msg_odom)
 
-	  			self.mission_failure  = not self.wp_gen.wp_received
+				self.mission_failure  = not self.wp_gen.wp_received
 	  			print('self.wp_gen.mission_flag', self.wp_gen.mission_flag)#( self.wp_gen.mission_flag or self.wp_gen.wp_received)
 	  			if (self.wp_gen.wp_received):# and not self.mission_flag):
 						self.wp = self.global_wp_nav(nav2pit_pub,self.wp_gen)
@@ -219,7 +223,7 @@ def read_csv_with_time(filename):
 	map_offset = 2.5
 	map_resolution = 5
 	time_resolution = 700
-	time_offset = 0;
+	time_offset = 0
 	with open(filename, 'rb') as f:
 		reader = csv.reader(f, delimiter=',')
 		header = next(reader)
@@ -246,10 +250,10 @@ def main():
 
 	sm.userdata.counter_wp_2_pit = -1
 	sm.userdata.counter_wp_around_pit = -1
-	# sm.userdata.wp_2_pit = read_csv('/home/ayush/mrsd_ws/src/smach_pit_exp/src/waypoints.csv')
-	# sm.userdata.current_wp = sm.userdata.wp_2_pit[0]
-	sm.userdata.wp_around_pit = read_csv_with_time('/home/ayush/mrsd_ws/src/smach_pit_exp/src/waypoints.csv')
-	# sm.userdata.illumination_start_time = 0
+	sm.userdata.wp_2_pit = read_csv(FILE_TO_PIT)
+	sm.userdata.current_wp = sm.userdata.wp_2_pit[0]
+	sm.userdata.wp_around_pit = read_csv_with_time(FILE_AROUND_PIT)
+	sm.userdata.illumination_start_time = 0
 	sm.userdata.illumination_start_time = rospy.get_rostime().secs
 	# print("sm.userdata.illumination_start_time ", sm.userdata.illumination_start_time )
 	# print()
@@ -263,7 +267,7 @@ def main():
 						 'MISSION_COMPLETE':'Mission_completed_succesfully'})
 		
 		smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
-				 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'navAROUNDPIT'})
+				 transitions = {'reached_edge':'nav2EDGE', 'mission_ongoing':'nav2EDGE','failed':'nav2EDGE'})
 
 
 
