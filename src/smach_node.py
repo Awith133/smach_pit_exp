@@ -14,8 +14,9 @@ from geometry_msgs.msg import PoseStamped, PolygonStamped
 from waypoint_pit_planner.srv import waypoints
 
 
-GLOBAL_RADIUS = 1
+GLOBAL_RADIUS = 3
 GLOBAL_RADIUS2 = 0.5
+TIME_OUT = 600
 file_to_pit = rospy.get_param("file_to_pit")
 FILE_TO_PIT = file_to_pit
 file_around_pit = rospy.get_param("file_around_pit")
@@ -58,8 +59,8 @@ class nav2PIT(smach.State):
 	def global_wp_nav(self,userdata,nav2pit_pub):
 		#publish points from csv and get x,y
 		msg = PoseStamped()
-		msg.pose.position.x = userdata.wp_2_pit[userdata.counter_wp_2_pit][0]#x
-		msg.pose.position.y = userdata.wp_2_pit[userdata.counter_wp_2_pit][1]#y
+		msg.pose.position.x = userdata.wp_2_pit[userdata.counter_wp_2_pit][1]#x
+		msg.pose.position.y = userdata.wp_2_pit[userdata.counter_wp_2_pit][0]#y
 		msg.pose.orientation.w = 1
 		msg.header.frame_id = 'map'
 		print('Publishing wp', msg.pose.position.x , msg.pose.position.y )
@@ -81,8 +82,8 @@ class nav2PIT(smach.State):
 class circum_wp_cb(smach.State):
 
 	def __init__(self):
-		smach.State.__init__(self,input_keys=['counter_wp_around_pit','wp_around_pit','illumination_start_time'],
-					output_keys=['counter_wp_around_pit','illumination_start_time'],
+		smach.State.__init__(self,input_keys=['counter_wp_around_pit','wp_around_pit','illumination_start_time','towards_edge_time_start'],
+					output_keys=['counter_wp_around_pit','illumination_start_time','towards_edge_time_start'],
 					outcomes=['reached_vantage_zone','mission_ongoing','failed','MISSION_COMPLETE'])
 		self.success_flag = False
 		self.mission_flag = False
@@ -97,13 +98,24 @@ class circum_wp_cb(smach.State):
 			error = 0
 
 		if(error<GLOBAL_RADIUS or userdata.counter_wp_around_pit == -1):
-			if (userdata.counter_wp_around_pit>-1 and userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == 1 ):
-				current_time = rospy.get_rostime().secs
-				if not (current_time - userdata.illumination_start_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]): 
-					self.success_flag = True
+			if (userdata.counter_wp_around_pit>-1):
+				if(userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == 2):
+					self.mission_flag = True
 					return
+				if(userdata.wp_around_pit[userdata.counter_wp_around_pit][0] - rospy.get_rostime().secs>0):
+					return
+				if (userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == 1 ):
+					if not (current_time - userdata.illumination_start_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]): 
+						self.success_flag = True
+						return
 			userdata.counter_wp_around_pit += 1
-			if(userdata.counter_wp_around_pit == len(userdata.wp_around_pit)):
+			while((rospy.get_rostime().secs - userdata.illumination_start_time) >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
+				userdata.counter_wp_around_pit += 1
+			while(userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == -1):
+				if(userdata.wp_around_pit[userdata.counter_wp_around_pit][0] - rospy.get_rostime().secs<0):
+					userdata.counter_wp_around_pit += 1
+			#last way 
+			if(userdata.counter_wp_around_pit >= len(userdata.wp_around_pit)):
 				self.mission_flag = True
 				return
 			self.wp = self.global_wp_nav(nav2pit_pub,userdata)
@@ -114,10 +126,11 @@ class circum_wp_cb(smach.State):
 		rospy.loginfo("Publishing")
 		current_time = rospy.get_rostime().secs
 
-		while((current_time - userdata.illumination_start_time) >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
-			userdata.counter_wp_around_pit+=1
-		msg.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]
-		msg.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]
+		# while((current_time - userdata.illumination_start_time) >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
+		# 	userdata.counter_wp_around_pit+=1
+		# 	return
+		msg.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]
+		msg.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]
 		msg.pose.orientation.w = 1
 		msg.header.frame_id = 'map'
 		print('Publishing wp', msg.pose.position.x , msg.pose.position.y )
@@ -133,6 +146,7 @@ class circum_wp_cb(smach.State):
 			return 'MISSION_COMPLETE'
 		elif self.success_flag:
 			self.success_flag = False
+			sm.userdata.towards_edge_time_start = rospy.get_rostime().secs
 			return 'reached_vantage_zone'
 		return 'mission_ongoing'
 
@@ -141,7 +155,7 @@ class circum_wp_cb(smach.State):
 class reach_edge_cb(smach.State):
 
 	def __init__(self):
-		smach.State.__init__(self,input_keys=[ ],
+		smach.State.__init__(self,input_keys=['towards_edge_time_start' ],
 					output_keys=[ ],
 					outcomes=['reached_edge','mission_ongoing','failed'])
 		self.gen_first_flag = True
@@ -157,7 +171,6 @@ class reach_edge_cb(smach.State):
 			error = 0
 		else:
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
-		if(error<GLOBAL_RADIUS2):
 			rospy.wait_for_service('gen_wp2pit')
 			nav2pit_serv = rospy.ServiceProxy('gen_wp2pit', waypoints)
 	 	 	try:
@@ -166,8 +179,8 @@ class reach_edge_cb(smach.State):
 	  			if (self.mission_flag):
 	  				msg_odom = Odometry()
 					msg_odom.header.frame_id = 'map'
-					msg_odom.pose.pose.position.x = x_pose
-					msg_odom.pose.pose.position.y = -1*y_pose
+					msg_odom.pose.pose.position.x = -1*y_pose
+					msg_odom.pose.pose.position.y = x_pose
 					pit_edge_dist_pub.publish(msg_odom)
 
 				self.mission_failure  = not self.wp_gen.wp_received
@@ -196,6 +209,9 @@ class reach_edge_cb(smach.State):
 		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.gen_first_flag))
 		rate = rospy.Rate(5)
 		rate.sleep()
+		current_time = rospy.get_rostime().secs
+		if(userdata.towards_edge_time_start - current_time > TIME_OUT):
+			return 'failed'
  		if self.mission_flag:
  			self.gen_first_flag = True
 			return 'reached_edge'
@@ -216,9 +232,9 @@ def read_csv(filename):
 			i = 0
 			for elem in row:
 				if(i == 0):
-					tmp.append(int(elem) * resolution + offset)
-				else:
 					tmp.append(-1*int(elem) * resolution + offset)
+				else:
+					tmp.append(int(elem) * resolution + offset)
 				i+=1
 			wp.append(tmp)
 	return wp
@@ -239,9 +255,9 @@ def read_csv_with_time(filename):
 				if (i == 0):
 					tmp.append(int(elem) * time_resolution + time_offset)
 				elif (i==1):
-					tmp.append(int(elem) * map_resolution + map_offset)
-				elif (i == 2):
 					tmp.append(-1*int(elem) * map_resolution + map_offset)
+				elif (i == 2):
+					tmp.append(int(elem) * map_resolution + map_offset)
 				else:
 					tmp.append(int(elem))
 				i+=1
@@ -262,6 +278,7 @@ def main():
 	sm.userdata.wp_around_pit = read_csv_with_time(FILE_AROUND_PIT)
 	sm.userdata.illumination_start_time = 0
 	sm.userdata.illumination_start_time = rospy.get_rostime().secs
+	sm.userdata.towards_edge_time_start = 0
 	# print("sm.userdata.illumination_start_time ", sm.userdata.illumination_start_time )
 	# print()
 	with sm:
