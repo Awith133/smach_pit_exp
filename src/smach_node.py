@@ -18,10 +18,10 @@ from geometry_msgs.msg import Quaternion
   
 
 
-GLOBAL_RADIUS = 1.5
-GLOBAL_RADIUS2 = 1.5
+GLOBAL_RADIUS = 2
+GLOBAL_RADIUS2 = 0.75
 TIME_OUT = 600
-time_resolution = 60
+time_resolution = 30
 file_to_pit = rospy.get_param("file_to_pit")
 FILE_TO_PIT = file_to_pit
 file_around_pit = rospy.get_param("file_around_pit")
@@ -53,7 +53,7 @@ class nav2PIT(smach.State):
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
 		else:
 			error = 0
-		print("Ayush will see+",userdata.counter_wp_2_pit, error)
+		print("nav2PIT: Pursing Waypoint {0}, Distance to waypoint: {1}".format(userdata.counter_wp_2_pit, error))
 		if(error<GLOBAL_RADIUS or userdata.counter_wp_2_pit == -1):
 			userdata.counter_wp_2_pit += 1
 			if(userdata.counter_wp_2_pit >= len(userdata.wp_2_pit)):
@@ -74,11 +74,14 @@ class nav2PIT(smach.State):
 
 
 	def execute(self,userdata):
-		rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.success_flag))
+		sub_odom = rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.success_flag))
 		rate = rospy.Rate(5)
 		while not (self.mission_flag):
 			rate.sleep()
+		sub_odom.unregister()
 		if self.mission_flag:
+			print("Reached waypoint. On to next waypoint: {0}".format(userdata.counter_wp_2_pit))
+			print("------------------------------------------------------------------------------")
 			self.success_flag = False
 			self.mission_flag = False
 			userdata.illumination_start_time = rospy.get_rostime().secs
@@ -106,14 +109,13 @@ class circum_wp_cb(smach.State):
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
 		else:
 			error = 0
-		
 		if (userdata.counter_wp_around_pit>-1):
 			#when time is ahead
 			while((rospy.get_rostime().secs - userdata.illumination_start_time) >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]):
 				userdata.counter_wp_around_pit += 1
 		
-			print("error", error, "time", (rospy.get_rostime().secs - userdata.illumination_start_time),"x", "y", "index", 
-			userdata.wp_around_pit[userdata.counter_wp_around_pit][2], userdata.wp_around_pit[userdata.counter_wp_around_pit][1], userdata.counter_wp_around_pit, self.success_flag )
+			print("Circumnavigating Pit", "error", error, "time", (rospy.get_rostime().secs - userdata.illumination_start_time), "final_time", userdata.wp_around_pit[userdata.counter_wp_around_pit][0], 
+			"index",userdata.counter_wp_around_pit, "Success Flag", self.success_flag )
 		if(error<GLOBAL_RADIUS or userdata.counter_wp_around_pit == -1 or self.mission_start):
 			if (userdata.counter_wp_around_pit>-1 and not self.mission_start):
 
@@ -136,8 +138,11 @@ class circum_wp_cb(smach.State):
 				self.mission_flag = True
 				return
 
+			
+			# 
+			if userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == -1:
+				print("Going in Hibernation mode :*")
 			while(userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == -1):
-				print("Waiting")
 				if(userdata.wp_around_pit[userdata.counter_wp_around_pit][0] - (rospy.get_rostime().secs - userdata.illumination_start_time)< 0):
 					userdata.counter_wp_around_pit += 1
 
@@ -146,12 +151,11 @@ class circum_wp_cb(smach.State):
 
 	def global_wp_nav(self,nav2pit_pub, userdata):
 		msg = PoseStamped()
-		rospy.loginfo("Publishing")
 		msg.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]
 		msg.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]
 		msg.pose.orientation.w = 1
 		msg.header.frame_id = 'map'
-		print('Publishing wp', msg.pose.position.x , msg.pose.position.y )
+		print('Publishing Waypoints', msg.pose.position.x , msg.pose.position.y )
 		nav2pit_pub.publish(msg)
 		print(userdata.wp_around_pit[userdata.counter_wp_around_pit])
 		if (self.mission_start):
@@ -205,6 +209,8 @@ class reach_edge_cb(smach.State):
 		else:
 			error = (math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)) if self.wp is not None else 0
 		
+		# print("nav2PIT: Pursing Waypoint {0}, Distance to waypoint: {1}".format(userdata.counter_wp_2_pit, error))
+
 		if (error<GLOBAL_RADIUS2):
 			rospy.wait_for_service('gen_wp2pit')
 			nav2pit_serv = rospy.ServiceProxy('gen_wp2pit', waypoints)
@@ -335,8 +341,8 @@ def main():
 
 	with sm:
 
-		# smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
-		# 						 transitions = {'reached_pit':'nav2EDGE','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
+		smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
+								 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
 
 		smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 						 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
