@@ -30,6 +30,15 @@ FILE_AROUND_PIT = file_around_pit
 nav2pit_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size = 1)
 pit_edge_dist_pub = rospy.Publisher('/robot_at_edge_position', Odometry, queue_size = 1)
 
+def _get_pose(points):
+	num_points = len(points)
+	x_pose_arr = [points[i].x for i in range(0,num_points)]
+	y_pose_arr = [points[i].y for i in range(0,num_points)]
+	x_pose = sum(x_pose_arr)/num_points
+	y_pose = sum(y_pose_arr)/num_points
+	# print("Average current pose: {0}  {1}".format(x_pose, y_pose))
+	return [x_pose, y_pose]
+
 
 #CLASS 1
 class nav2PIT(smach.State):
@@ -41,13 +50,10 @@ class nav2PIT(smach.State):
 		self.success_flag = False
 		self.mission_flag = False
 
-
-
 	def position_cb(self,msg,argc):
 		if self.mission_flag:
 			return
-		x_pose = msg.polygon.points[0].x
-		y_pose = msg.polygon.points[0].y
+		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
 		if(userdata.counter_wp_2_pit != -1):
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
@@ -101,8 +107,7 @@ class circum_wp_cb(smach.State):
 		self.mission_start = True
 
 	def position_cb(self, msg, argc):
-		x_pose = msg.polygon.points[0].x
-		y_pose = msg.polygon.points[0].y
+		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
 		
 		if(userdata.counter_wp_around_pit != -1 or not self.mission_start):
@@ -199,8 +204,7 @@ class reach_edge_cb(smach.State):
 
 
 	def position_cb(self,msg, argc):
-		x_pose = msg.polygon.points[0].x
-		y_pose = msg.polygon.points[0].y
+		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
 
 		if self.gen_first_flag:
