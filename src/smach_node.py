@@ -208,11 +208,11 @@ class reach_edge_cb(smach.State):
 		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
 		#--------------------------------------
-		# manual_override = rospy.get_param("manual_override")
+		manual_override = rospy.get_param("manual_override")
 
-		# if (manual_override):
-		# 	self.mission_flag = True
-		# 	return
+		if (manual_override):
+			self.mission_flag = True
+			return
 		if self.gen_first_flag:
 			error = 0
 			self.gen_first_flag = False
@@ -269,11 +269,13 @@ class reach_edge_cb(smach.State):
 		print("stage 3",self.mission_flag , self.mission_failure , (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT ))
 		while not (self.mission_flag or self.mission_failure or (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT) ):
 			rate.sleep()
+
 		current_time = rospy.get_rostime().secs
 		sub_odom.unregister()
 		#--------------------------------------
-		#rospy.set_param("manual_override", False)
+		
 		if self.mission_flag:
+			rospy.set_param("manual_override", False)
 			self.gen_first_flag = True
 			self.mission_flag = False
 			self.mission_failure = False
@@ -356,17 +358,17 @@ def main():
 		# smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
 		# 						 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
 
-		# smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
-		# 				 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
-		# 				 'MISSION_COMPLETE':'Mission_completed_succesfully'})
+		smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
+						 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
+						 'MISSION_COMPLETE':'Mission_completed_succesfully'})
 		
-		# smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
-		# 		 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
-
-
-
 		smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
-				 transitions = {'reached_edge':'Mission_aborted', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
+				 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
+
+
+
+		# smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
+		# 		 transitions = {'reached_edge':'Mission_aborted', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
 
 		# smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 		# 				 transitions = {'reached_vantage_zone':'Mission_aborted', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
