@@ -16,7 +16,7 @@ from tf.transformations import quaternion_from_euler
 from geometry_msgs.msg import Quaternion
 
 from std_msgs.msg import Float32
-  
+
 
 
 GLOBAL_RADIUS = 2
@@ -110,21 +110,21 @@ class circum_wp_cb(smach.State):
 	def position_cb(self, msg, argc):
 		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
-		
+
 		# counter is valid (not -1) and did not exaust the list of wp
 		if(userdata.counter_wp_around_pit != -1 or not self.mission_start):
 			error = math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)
 		else:
 			error = 0
-		# counter is valid (not -1)	
+		# counter is valid (not -1)
 		if (userdata.counter_wp_around_pit>-1):
 
 			#when time is ahead
 			current_time = (rospy.get_rostime().secs - userdata.illumination_start_time)
 			while( current_time >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]): # will not work here
 				userdata.counter_wp_around_pit += 1
-		
-			print("Circumnavigating Pit", "error", error, "time", (rospy.get_rostime().secs - userdata.illumination_start_time), "final_time", userdata.wp_around_pit[userdata.counter_wp_around_pit][0], 
+
+			print("Circumnavigating Pit", "error", error, "time", (rospy.get_rostime().secs - userdata.illumination_start_time), "final_time", userdata.wp_around_pit[userdata.counter_wp_around_pit][0],
 			"index",userdata.counter_wp_around_pit, "Success Flag", self.success_flag )
 
 		#error is less or counter is invalid or just returned from the third state
@@ -135,26 +135,26 @@ class circum_wp_cb(smach.State):
 
 				#you have reached the area inside the potential vantage zone
 				if (userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == 1 ):
-					
+
 					#you reached vantage zone in time ie before the final time elapsed
-					
+
 					if not (current_time  >= userdata.wp_around_pit[userdata.counter_wp_around_pit][0]): #current time ahead of desired
 						self.success_flag = True
 						return
 
 				#when you reach the way point before the desired time
-				
+
 				if((userdata.wp_around_pit[userdata.counter_wp_around_pit][0] - current_time )>0):
 					return
 			#update counter
 			userdata.counter_wp_around_pit += 1
-			
+
 			#LIST OF WP EXHAUSTED
 			if(userdata.counter_wp_around_pit >= len(userdata.wp_around_pit)):
 				self.mission_flag = True
 				return
-			
-			# 
+
+			#
 			if userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == -1:
 				print("Going in Hibernation mode :* index: value: ", userdata.counter_wp_around_pit,  userdata.wp_around_pit[userdata.counter_wp_around_pit][3] )
 			while(userdata.wp_around_pit[userdata.counter_wp_around_pit][3] == -1):
@@ -211,7 +211,7 @@ class reach_edge_cb(smach.State):
 		self.gen_first_flag = True
 		self.mission_flag = False
 		self.mission_failure = False
-		self.wp = None		
+		self.wp = None
 
 
 	def position_cb(self,msg, argc):
@@ -230,13 +230,17 @@ class reach_edge_cb(smach.State):
 		print("I am kinda safe: ", manual_override)
 		if (manual_override):
 			self.mission_flag = True
+      odom_msg = rospy.wait_for_message("/move_base/local_costmap/footprint", PolygonStamped)
+      nav2pit_pub.publish(odom_msg)
+      print("Taking yaw from where to see")
+      ############################################
 			return
 		if self.gen_first_flag:
 			error = 0
 			self.gen_first_flag = False
 		else:
 			error = (math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)) if self.wp is not None else 0
-		
+
 		# print("nav2PIT: Pursing Waypoint {0}, Distance to waypoint: {1}".format(userdata.counter_wp_2_pit, error))
 		print("Clear of the first set of ifs.")
 		if (error<GLOBAL_RADIUS2):
@@ -263,21 +267,22 @@ class reach_edge_cb(smach.State):
 				print("Service did not process request: " + str(exc))
 		print("I am done now")
 
-					
+
 
 	def global_wp_nav(self,nav2pit_pub,wp_gen):
 		#service call to ayush's function to get way point
 		msg = PoseStamped()
-		# if (wp_gen.yaw == 100):
-		# 	rospy.wait_for_service('where_to_see')
-		# 	light_dir_sev = rospy.ServiceProxy('where_to_see', float32)
-		# 	print("Taking yaw from where to see")
+		if (wp_gen.yaw == 100):
+
+			light_dir_sev = rospy.wait_for_message('where_to_see', float32)
+      wp_gen.yaw = light_dir_sev
+			print("Taking yaw from where to see")
 		# 	try:
 		# 		wp_gen.yaw = light_dir_sev()
 		# 	except rospy.ServiceException as exc:
 		# 		print("Service did not process request: " + str(exc))
-			
-		
+
+
 		q = quaternion_from_euler(0, 0, wp_gen.yaw)
 		msg.pose.position.x = wp_gen.x#x
 		msg.pose.position.y = wp_gen.y#y
@@ -293,7 +298,7 @@ class reach_edge_cb(smach.State):
 
 	def execute(self,userdata):
 		############################REMOVE
-		
+
 		# userdata.towards_edge_time_start = rospy.get_rostime().secs
 		# sub_odom = rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.gen_first_flag))
 		print("Starting wait for message")
@@ -308,7 +313,7 @@ class reach_edge_cb(smach.State):
 		current_time = rospy.get_rostime().secs
 		# sub_odom.unregister()
 		#--------------------------------------
-		
+
 		if self.mission_flag:
 			rospy.set_param("manual_override", False)
 			self.gen_first_flag = True
@@ -347,11 +352,11 @@ def read_csv_with_time(filename):
 	wp = []
 	map_offset = 2.5
 	map_resolution = 5
-	
+
 	time_offset = 0
 	with open(filename, 'rb') as f:
 		reader = csv.reader(f, delimiter=',')
-		
+
 		for row in reader:
 			tmp = []
 			i = 0
@@ -392,7 +397,7 @@ def main():
 		smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 						 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
 						 'MISSION_COMPLETE':'Mission_completed_succesfully'})
-		
+
 		smach.StateMachine.add('nav2EDGE', reach_edge_cb(), #BState(nav2pit_cb),
 				 transitions = {'reached_edge':'navAROUNDPIT', 'mission_ongoing':'nav2EDGE','failed':'Mission_aborted'})
 
