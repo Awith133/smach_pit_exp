@@ -19,7 +19,7 @@ from geometry_msgs.msg import Quaternion
 
 
 GLOBAL_RADIUS = 2
-GLOBAL_RADIUS2 = 0.75
+GLOBAL_RADIUS2 = 0.6
 TIME_OUT = 600
 time_resolution = 30
 file_to_pit = rospy.get_param("file_to_pit")
@@ -201,12 +201,18 @@ class reach_edge_cb(smach.State):
 		self.mission_flag = False
 		self.mission_failure = False
 		self.wp = None
+		
 
 
 	def position_cb(self,msg, argc):
 		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		userdata = argc[0]
+		#--------------------------------------
+		manual_override = rospy.get_param("manual_override")
 
+		if (manual_override):
+			self.mission_flag = True
+			return
 		if self.gen_first_flag:
 			error = 0
 			self.gen_first_flag = False
@@ -214,7 +220,7 @@ class reach_edge_cb(smach.State):
 			error = (math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)) if self.wp is not None else 0
 		
 		# print("nav2PIT: Pursing Waypoint {0}, Distance to waypoint: {1}".format(userdata.counter_wp_2_pit, error))
-
+		print("ERROT:::::::", error )
 		if (error<GLOBAL_RADIUS2):
 			rospy.wait_for_service('gen_wp2pit')
 			nav2pit_serv = rospy.ServiceProxy('gen_wp2pit', waypoints)
@@ -263,9 +269,13 @@ class reach_edge_cb(smach.State):
 		print("stage 3",self.mission_flag , self.mission_failure , (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT ))
 		while not (self.mission_flag or self.mission_failure or (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT) ):
 			rate.sleep()
+
 		current_time = rospy.get_rostime().secs
 		sub_odom.unregister()
+		#--------------------------------------
+		
 		if self.mission_flag:
+			rospy.set_param("manual_override", False)
 			self.gen_first_flag = True
 			self.mission_flag = False
 			self.mission_failure = False
@@ -345,8 +355,8 @@ def main():
 
 	with sm:
 
-		smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
-								 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
+		# smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
+		# 						 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
 
 		smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 						 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
