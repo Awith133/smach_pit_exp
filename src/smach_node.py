@@ -230,6 +230,19 @@ class reach_edge_cb(smach.State):
 		print("I am kinda safe: ", manual_override)
 		if (manual_override):
 			self.mission_flag = True
+			
+			msg = PoseStamped()
+			msg.header.frame_id = 'map'
+			msg.pose.position.x = -1*y_pose#x
+			msg.pose.position.y = x_pose#y
+			
+			msg.pose.orientation.x = 0
+			msg.pose.orientation.y = 0
+			msg.pose.orientation.z = 0
+			msg.pose.orientation.w = 1
+			
+			nav2pit_pub.publish(msg)
+			print("staying at the same place")
 			return
 		if self.gen_first_flag:
 			error = 0
@@ -268,19 +281,14 @@ class reach_edge_cb(smach.State):
 	def global_wp_nav(self,nav2pit_pub,wp_gen):
 		#service call to ayush's function to get way point
 		msg = PoseStamped()
-		# if (wp_gen.yaw == 100):
-		# 	rospy.wait_for_service('where_to_see')
-		# 	light_dir_sev = rospy.ServiceProxy('where_to_see', float32)
-		# 	print("Taking yaw from where to see")
-		# 	try:
-		# 		wp_gen.yaw = light_dir_sev()
-		# 	except rospy.ServiceException as exc:
-		# 		print("Service did not process request: " + str(exc))
-			
+		if (wp_gen.yaw == 100):
+			light_dir_sev = rospy.wait_for_message('where_to_see', Float32)
+	 		wp_gen.yaw = light_dir_sev.data
+			print("Taking yaw from where to see", wp_gen.yaw)
 		
-		q = quaternion_from_euler(0, 0, wp_gen.yaw)
 		msg.pose.position.x = wp_gen.x#x
 		msg.pose.position.y = wp_gen.y#y
+		q = quaternion_from_euler(0, 0, wp_gen.yaw)
 		msg.pose.orientation.x = q[0]
 		msg.pose.orientation.y = q[1]
 		msg.pose.orientation.z = q[2]
