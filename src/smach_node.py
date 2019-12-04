@@ -21,8 +21,8 @@ from std_msgs.msg import Float32
 
 GLOBAL_RADIUS = 2
 GLOBAL_RADIUS2 = 0.6
-TIME_OUT = 100
-time_resolution = 50
+TIME_OUT = 300
+time_resolution = 20
 file_to_pit = rospy.get_param("file_to_pit")
 FILE_TO_PIT = file_to_pit
 file_around_pit = rospy.get_param("file_around_pit")
@@ -211,22 +211,23 @@ class reach_edge_cb(smach.State):
 		self.gen_first_flag = True
 		self.mission_flag = False
 		self.mission_failure = False
-		self.wp = None
-		
+		self.wp = None		
 
 
 	def position_cb(self,msg, argc):
+		print("Mission Flag: ", self.mission_flag)
 		userdata = argc[0]
 		current_time = rospy.get_rostime().secs
 		if(userdata.towards_edge_time_start - current_time > TIME_OUT):
 			self.gen_first_flag = True
 			self.mission_flag = False
 			self.mission_failure = False
+			print("I have been timed out")
 			return
 		[x_pose, y_pose] = _get_pose(msg.polygon.points)
 		#--------------------------------------
 		manual_override = rospy.get_param("manual_override")
-
+		print("I am kinda safe: ", manual_override)
 		if (manual_override):
 			self.mission_flag = True
 			return
@@ -237,7 +238,7 @@ class reach_edge_cb(smach.State):
 			error = (math.sqrt((x_pose - self.wp.pose.position.x)**2 + (y_pose - self.wp.pose.position.y)**2)) if self.wp is not None else 0
 		
 		# print("nav2PIT: Pursing Waypoint {0}, Distance to waypoint: {1}".format(userdata.counter_wp_2_pit, error))
-		
+		print("Clear of the first set of ifs.")
 		if (error<GLOBAL_RADIUS2):
 			rospy.wait_for_service('gen_wp2pit')
 			nav2pit_serv = rospy.ServiceProxy('gen_wp2pit', waypoints)
@@ -260,6 +261,7 @@ class reach_edge_cb(smach.State):
 			except rospy.ServiceException as exc:
 				self.gen_first_flag = True
 				print("Service did not process request: " + str(exc))
+		print("I am done now")
 
 					
 
@@ -293,20 +295,25 @@ class reach_edge_cb(smach.State):
 		############################REMOVE
 		
 		# userdata.towards_edge_time_start = rospy.get_rostime().secs
-		sub_odom = rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.gen_first_flag))
-		rate = rospy.Rate(5)
+		# sub_odom = rospy.Subscriber("/move_base/local_costmap/footprint", PolygonStamped, self.position_cb, (userdata,self.gen_first_flag))
+		print("Starting wait for message")
+		polygon = rospy.wait_for_message("/move_base/local_costmap/footprint", PolygonStamped)
+		self.position_cb(polygon, (userdata, self.gen_first_flag))
+		# rate = rospy.Rate(1)
 		print("stage 3",self.mission_flag , self.mission_failure , (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT ))
-		while not (self.mission_flag or self.mission_failure or (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT) ):
-			rate.sleep()
+		# while not (self.mission_flag or self.mission_failure or (userdata.towards_edge_time_start - rospy.get_rostime().secs > TIME_OUT) ):
+		# 	print("I should sleep")
+		# 	rate.sleep()
 
 		current_time = rospy.get_rostime().secs
-		sub_odom.unregister()
+		# sub_odom.unregister()
 		#--------------------------------------
 		
 		if self.mission_flag:
 			rospy.set_param("manual_override", False)
 			self.gen_first_flag = True
 			self.mission_flag = False
+			print("Mission flag resetted")
 			self.mission_failure = False
 			return 'reached_edge'
 		if self.mission_failure:
