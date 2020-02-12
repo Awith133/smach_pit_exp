@@ -16,13 +16,16 @@ from tf.transformations import quaternion_from_euler
 from geometry_msgs.msg import Quaternion
 
 from std_msgs.msg import Float32
-  
+import tf
+
+
 
 
 GLOBAL_RADIUS = 2
-GLOBAL_RADIUS2 = 0.6
-TIME_OUT = 300
-time_resolution = 20
+GLOBAL_RADIUS2 = 0.9
+YAW_THRESH = 0.16 #10 deg
+TIME_OUT = 200
+time_resolution = 25
 file_to_pit = rospy.get_param("file_to_pit")
 FILE_TO_PIT = file_to_pit
 file_around_pit = rospy.get_param("file_around_pit")
@@ -30,6 +33,7 @@ FILE_AROUND_PIT = file_around_pit
 
 nav2pit_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size = 1)
 pit_edge_dist_pub = rospy.Publisher('/robot_at_edge_position', Odometry, queue_size = 1)
+listener = None
 
 def _get_pose(points):
 	num_points = len(points)
@@ -169,7 +173,17 @@ class circum_wp_cb(smach.State):
 		msg = PoseStamped()
 		msg.pose.position.x = userdata.wp_around_pit[userdata.counter_wp_around_pit][2]
 		msg.pose.position.y = userdata.wp_around_pit[userdata.counter_wp_around_pit][1]
-		msg.pose.orientation.w = 1
+		pit_centre = [650, -650]
+
+		vec_x = pit_centre[0] - msg.pose.position.x
+		vec_y = pit_centre[1] - msg.pose.position.y
+		yaw = math.atan2(vec_y, vec_x)
+		q = quaternion_from_euler(0, 0, yaw)
+		msg.pose.orientation.x = q[0]
+		msg.pose.orientation.y = q[1]
+		msg.pose.orientation.z = q[2]
+		msg.pose.orientation.w = q[3]
+
 		msg.header.frame_id = 'map'
 		print('Publishing Waypoints', msg.pose.position.x , msg.pose.position.y )
 		nav2pit_pub.publish(msg)
@@ -261,6 +275,14 @@ class reach_edge_cb(smach.State):
 				self.mission_flag = self.wp_gen.mission_flag
 				print("I am inside smach: {0}".format(self.mission_flag))
 				if (self.mission_flag):
+					(trans, rot) = listener.lookupTransform('map','base_link',rospy.Time())
+					euler = tf.transformations.euler_from_quaternion(rot)
+					while(abs(self.goal_yaw - euler[2])>YAW_THRESH):
+						# print("Quaternion",rot)
+						# print(euler)
+						# print("ERROR in YAW: ",abs(self.goal_yaw - euler[2]) )
+						(trans, rot) = listener.lookupTransform('map','base_link',rospy.Time())
+						euler = tf.transformations.euler_from_quaternion(rot)
 					msg_odom = Odometry()
 					msg_odom.header.frame_id = 'map'
 					msg_odom.pose.pose.position.x = -1*y_pose
@@ -284,6 +306,7 @@ class reach_edge_cb(smach.State):
 		if (wp_gen.yaw == 100):
 			light_dir_sev = rospy.wait_for_message('where_to_see', Float32)
 	 		wp_gen.yaw = light_dir_sev.data
+			self.goal_yaw = light_dir_sev.data
 			print("Taking yaw from where to see", wp_gen.yaw)
 		
 		msg.pose.position.x = wp_gen.x#x
@@ -379,7 +402,9 @@ def read_csv_with_time(filename):
 
 
 def main():
+	global listener
 	rospy.init_node('smach_nodelet')
+	listener = tf.TransformListener()
 	sm = smach.StateMachine(outcomes=['Mission_completed_succesfully','Mission_aborted'])
 	sm.userdata.q = 5 # size of the array given
 
@@ -394,8 +419,8 @@ def main():
 
 	with sm:
 
-		# smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
-		# 						 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
+		smach.StateMachine.add('nav2PIT', nav2PIT(),#BState(nav2pit_cb),
+								 transitions = {'reached_pit':'navAROUNDPIT','mission_ongoing':'nav2PIT' ,'failed':'Mission_aborted'})
 
 		smach.StateMachine.add('navAROUNDPIT', circum_wp_cb(),#BState(nav2pit_cb),
 						 transitions = {'reached_vantage_zone':'nav2EDGE', 'mission_ongoing':'navAROUNDPIT', 'failed':'Mission_aborted',
